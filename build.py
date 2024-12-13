@@ -37,6 +37,24 @@ def build_extension():
 
 if __name__ == "__main__":
     from setuptools import setup
+    # Set compiler flags for optimization
+    extra_compile_args = []
+    if sys.platform == 'win32':
+        extra_compile_args.extend([
+            '/O2',  # Full optimization
+            '/openmp',  # Enable OpenMP
+            '/std:c++17',
+            '/arch:AVX2',  # Use AVX2 instructions if available
+            f'/MP{num_cores}'  # Parallel compilation
+        ])
+    else:
+        extra_compile_args.extend([
+            '-O3',  # Full optimization
+            '-fopenmp',  # Enable OpenMP
+            '-std=c++17',
+            '-march=native',  # Optimize for current CPU
+            f'-j{num_cores}'  # Parallel compilation
+        ])
     # Configure the extension
     extension = CppExtension(
         name='custom_extension',

@@ -76,6 +76,53 @@ def pytorch_attention(query, key, value, num_heads, attn_mask=None, dropout_p=0.
     
     return output, attn_weights
 
+def mlm_attention(query, key, value, num_heads, attn_mask=None, dropout_p=0.0):
+    """HuggingFace's MLM attention implementation for comparison"""
+    from transformers.models.bert.modeling_bert import BertSelfAttention
+    import torch.nn as nn
+    
+    # Create a temporary config object
+    class Config:
+        def __init__(self, hidden_size, num_attention_heads, attention_probs_dropout_prob):
+            self.hidden_size = hidden_size
+            self.num_attention_heads = num_attention_heads
+            self.attention_probs_dropout_prob = attention_probs_dropout_prob
+    
+    batch_size, seq_length, embed_dim = query.size()
+    config = Config(
+        hidden_size=embed_dim,
+        num_attention_heads=num_heads,
+        attention_probs_dropout_prob=dropout_p
+    )
+    
+    # Create BERT attention layer
+    attention = BertSelfAttention(config)
+    
+    # Set weights to identity matrices for fair comparison
+    attention.query = nn.Linear(embed_dim, embed_dim, bias=False)
+    attention.key = nn.Linear(embed_dim, embed_dim, bias=False)
+    attention.value = nn.Linear(embed_dim, embed_dim, bias=False)
+    
+    with torch.no_grad():
+        attention.query.weight.copy_(torch.eye(embed_dim))
+        attention.key.weight.copy_(torch.eye(embed_dim))
+        attention.value.weight.copy_(torch.eye(embed_dim))
+    
+    # Prepare attention mask
+    if attn_mask is not None:
+        attention_mask = attn_mask.unsqueeze(0).unsqueeze(0)
+    else:
+        attention_mask = None
+    
+    # Forward pass
+    output = attention(
+        hidden_states=query,
+        attention_mask=attention_mask,
+        output_attentions=True
+    )
+    
+    return output[0], output[1]  # (output, attention_weights)
+
 def test_attention():
     print("\n=== Testing Attention Implementations ===")
     
@@ -105,7 +152,6 @@ def test_attention():
     
     try:
         print("\n--- Testing RoPE Attention ---")
-        # Forward pass with RoPE
         rope_output, rope_weights = custom_extension.rope_attention(
             query=query,
             key=key,
@@ -155,10 +201,40 @@ def test_attention():
         std_output.backward(grad_output)
         print("✓ Standard attention backward pass successful")
         
+        print("\n--- Testing MLM Attention ---")
+        # Reset gradients
+        query.grad = None
+        key.grad = None
+        value.grad = None
+        
+        # Forward pass with MLM attention
+        mlm_output, mlm_weights = mlm_attention(
+            query=query,
+            key=key,
+            value=value,
+            num_heads=num_heads,
+            attn_mask=attn_mask,
+            dropout_p=0.0
+        )
+        
+        print("✓ MLM attention forward pass successful")
+        print(f"Output shape: {mlm_output.shape}")
+        print(f"Attention weights shape: {mlm_weights.shape}")
+        
+        # Test backward pass
+        mlm_output.backward(grad_output)
+        print("✓ MLM attention backward pass successful")
+        
         # Compare outputs
         print("\n--- Comparing Implementations ---")
-        output_diff = (rope_output - std_output).abs().max().item()
-        print(f"Max output difference: {output_diff:.6f}")
+        rope_std_diff = (rope_output - std_output).abs().max().item()
+        rope_mlm_diff = (rope_output - mlm_output).abs().max().item()
+        std_mlm_diff = (std_output - mlm_output).abs().max().item()
+        
+        print(f"Max differences:")
+        print(f"- RoPE vs Standard: {rope_std_diff:.6f}")
+        print(f"- RoPE vs MLM: {rope_mlm_diff:.6f}")
+        print(f"- Standard vs MLM: {std_mlm_diff:.6f}")
         
         # Benchmark
         print("\n--- Benchmarking ---")
@@ -174,18 +250,19 @@ def test_attention():
             )[0]
         )
         
-        pytorch_time = benchmark_fn(
-            lambda: pytorch_attention(
+        mlm_time = benchmark_fn(
+            lambda: mlm_attention(
                 query, key, value, num_heads, attn_mask, 0.0
             )[0]
         )
         
         print(f"RoPE attention: {rope_time*1000:.3f} ms")
         print(f"Standard attention: {std_time*1000:.3f} ms")
-        print(f"PyTorch attention: {pytorch_time*1000:.3f} ms")
+        print(f"MLM attention: {mlm_time*1000:.3f} ms")
         print(f"Speed ratios:")
         print(f"- RoPE vs Standard: {std_time/rope_time:.2f}x")
-        print(f"- RoPE vs PyTorch: {pytorch_time/rope_time:.2f}x")
+        print(f"- RoPE vs MLM: {mlm_time/rope_time:.2f}x")
+        print(f"- Standard vs MLM: {mlm_time/std_time:.2f}x")
         
     except Exception as e:
         print(f"\nError in attention test: {str(e)}")

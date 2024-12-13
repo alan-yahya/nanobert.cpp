@@ -380,6 +380,7 @@ std::vector<torch::Tensor> rope_attention(
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("custom_matmul", &custom_matmul, "Custom Matrix Multiplication");
     m.def("custom_attention_scores", &custom_attention_scores, "Custom Attention Score Computation");
+    m.def("create_rope_rotary_matrices", &create_rope_rotary_matrices, "Create RoPE Rotary Matrices");
     m.def("full_attention", &full_attention, "Full Multi-Head Attention Implementation",
           py::arg("query"),
           py::arg("key"),

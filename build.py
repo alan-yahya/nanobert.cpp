@@ -45,7 +45,6 @@ def build_extension():
                 no_python_abi_suffix=True  # Simpler file naming
             )
         },
-        build_args=[f"-j{num_cores}"]  # Parallel build
     )
 
 if __name__ == "__main__":

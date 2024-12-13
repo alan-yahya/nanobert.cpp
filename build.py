@@ -37,6 +37,10 @@ def build_extension():
 
 if __name__ == "__main__":
     from setuptools import setup
+    import multiprocessing
+
+    # Determine the number of CPU cores for parallel compilation
+    num_cores = multiprocessing.cpu_count()
     # Set compiler flags for optimization
     extra_compile_args = []
     if sys.platform == 'win32':

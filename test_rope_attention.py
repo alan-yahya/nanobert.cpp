@@ -3,6 +3,7 @@ import custom_extension
 import math
 import matplotlib.pyplot as plt
 import numpy as np
+from typing import Optional
 
 def create_sinusoidal_positions(seq_length, dim, base=10000.0):
     """Reference implementation of position encodings"""
@@ -51,14 +52,17 @@ def test_rotary_embeddings():
     key = torch.randn(batch_size, num_heads, seq_length, head_dim)
     
     # Get rotary matrices from our implementation
-    device = query.device
-    dtype = query.dtype
+    # Pass None for default options
     cos, sin = custom_extension.create_rope_rotary_matrices(
         seq_length=seq_length,
         dim=head_dim,
         base=rope_base,
-        options=torch.TensorOptions().device(device).dtype(dtype)
+        options=None  # Let C++ use default options
     )
+    
+    # Move tensors to match query device/dtype if needed
+    cos = cos.to(device=query.device, dtype=query.dtype)
+    sin = sin.to(device=query.device, dtype=query.dtype)
     
     # Apply our implementation
     custom_q = custom_extension.apply_rotary_embeddings(query, cos, sin)
@@ -117,18 +121,24 @@ def test_rotary_embeddings():
     key_layer = torch.randn(batch_size, seq_length, head_dim * num_heads)
     value_layer = torch.randn(batch_size, seq_length, head_dim * num_heads)
     
-    # Compute attention with RoPE
+    # Create proper causal attention mask
+    attn_mask = torch.triu(
+        torch.ones(seq_length, seq_length) * float('-inf'),
+        diagonal=1
+    ).to(device=query_layer.device, dtype=query_layer.dtype)
+    
+    # Use proper attention mask
     output, weights = custom_extension.rope_attention(
         query_layer,
         key_layer,
         value_layer,
         num_heads,
-        torch.Tensor(),  # no mask
-        0.0,  # no dropout
-        True,  # need weights
-        False,  # don't average weights
+        attn_mask,  # proper causal mask
+        0.0,        # no dropout
+        True,       # need weights
+        False,      # don't average weights
         rope_base,
-        False  # not training
+        False       # not training
     )
     
     print("\nOutput shape:", output.shape)
@@ -143,9 +153,18 @@ def test_rotary_embeddings():
     shifted_k = torch.roll(key_layer, shifts=shift, dims=1)
     shifted_v = torch.roll(value_layer, shifts=shift, dims=1)
     
+    # Use same attention mask for shifted test
     shifted_output, shifted_weights = custom_extension.rope_attention(
-        shifted_q, shifted_k, shifted_v,
-        num_heads, torch.Tensor(), 0.0, True, False, rope_base, False
+        shifted_q, 
+        shifted_k, 
+        shifted_v,
+        num_heads, 
+        attn_mask,  # same causal mask
+        0.0, 
+        True, 
+        False, 
+        rope_base, 
+        False
     )
     
     # The attention pattern should be similarly shifted

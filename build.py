@@ -1,45 +1,72 @@
-import subprocess
-import sys
 import os
-
-def setup_msvc():
-    if os.name == 'nt':  # Windows
-        import subprocess
-        try:
-            # Run vswhere to find Visual Studio installation
-            vswhere = (
-                '"C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe" '
-                '-latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 '
-                '-property installationPath'
-            )
-            vs_path = subprocess.check_output(vswhere, shell=True).decode().strip()
-            
-            # Add Visual Studio and MSVC to PATH
-            os.environ['PATH'] = ';'.join([
-                os.environ['PATH'],
-                os.path.join(vs_path, 'Common7', 'IDE'),
-                os.path.join(vs_path, 'VC', 'Tools', 'MSVC', '14.37.32822', 'bin', 'Hostx64', 'x64')
-            ])
-        except:
-            print("Warning: Could not set up MSVC environment")
-
-def install_ninja():
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "ninja"])
+import sys
+from setuptools import setup
+from torch.utils.cpp_extension import BuildExtension, CppExtension
+import multiprocessing
 
 def build_extension():
-    try:
-        # Try to build with ninja first
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-e", "."])
-    except subprocess.CalledProcessError:
-        print("Ninja build failed, falling back to default compiler...")
-        # Fall back to default compiler
-        os.environ["USE_NINJA"] = "0"
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-e", "."])
+    # Determine the number of CPU cores for parallel compilation
+    num_cores = multiprocessing.cpu_count()
+    
+    # Set compiler flags for optimization
+    extra_compile_args = []
+    if sys.platform == 'win32':
+        extra_compile_args.extend([
+            '/O2',  # Full optimization
+            '/openmp',  # Enable OpenMP
+            '/std:c++17',
+            '/arch:AVX2',  # Use AVX2 instructions if available
+            f'/MP{num_cores}'  # Parallel compilation
+        ])
+    else:
+        extra_compile_args.extend([
+            '-O3',  # Full optimization
+            '-fopenmp',  # Enable OpenMP
+            '-std=c++17',
+            '-march=native',  # Optimize for current CPU
+            f'-j{num_cores}'  # Parallel compilation
+        ])
+
+    # Configure the extension
+    extension = CppExtension(
+        name='custom_extension',
+        sources=['extension.cpp'],
+        extra_compile_args=extra_compile_args,
+        optional=True  # Continue even if optimization flags aren't supported
+    )
+
+    # Build in parallel
+    setup(
+        name='custom_extension',
+        ext_modules=[extension],
+        cmdclass={
+            'build_ext': BuildExtension.with_options(
+                use_ninja=True,  # Use ninja build system if available
+                no_python_abi_suffix=True  # Simpler file naming
+            )
+        },
+        build_args=[f"-j{num_cores}"]  # Parallel build
+    )
 
 if __name__ == "__main__":
-    setup_msvc()  # Set up MSVC environment first
+    os.environ["TORCH_CUDA_ARCH_LIST"] = "All"  # Build for all CUDA architectures
+    
+    # Enable parallel build in distutils
+    if sys.platform == 'win32':
+        os.environ['CL'] = '/MP'
+    
     try:
-        install_ninja()
-    except:
-        print("Failed to install ninja, will use default compiler")
-    build_extension() 
+        build_extension()
+    except Exception as e:
+        print(f"Error during build: {str(e)}")
+        # Try fallback build without optimizations
+        print("Attempting fallback build...")
+        setup(
+            name='custom_extension',
+            ext_modules=[CppExtension(
+                name='custom_extension',
+                sources=['extension.cpp'],
+                extra_compile_args=['/std:c++17'] if sys.platform == 'win32' else ['-std=c++17']
+            )],
+            cmdclass={'build_ext': BuildExtension}
+        )

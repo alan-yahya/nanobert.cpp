@@ -35,6 +35,10 @@ def build_extension():
         optional=True  # Continue even if optimization flags aren't supported
     )
 
+if __name__ == "__main__":
+    from setuptools import setup
+    setup()
+
     # Build in parallel
     setup(
         name='custom_extension',

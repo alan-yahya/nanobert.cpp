@@ -87,6 +87,7 @@ def mlm_attention(query, key, value, num_heads, attn_mask=None, dropout_p=0.0):
             self.hidden_size = hidden_size
             self.num_attention_heads = num_attention_heads
             self.attention_probs_dropout_prob = attention_probs_dropout_prob
+            self.is_decoder = False  # Add this line to fix the error
     
     batch_size, seq_length, embed_dim = query.size()
     config = Config(

@@ -37,6 +37,13 @@ def build_extension():
 
 if __name__ == "__main__":
     from setuptools import setup
+    # Configure the extension
+    extension = CppExtension(
+        name='custom_extension',
+        sources=['extension.cpp'],
+        extra_compile_args=extra_compile_args,
+        optional=True  # Continue even if optimization flags aren't supported
+    )
     setup()
 
     # Build in parallel

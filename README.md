@@ -1,36 +1,21 @@
 # C++ Extensions for NanoBERT
 
-This project implements a custom attention mechanism with optimized C++ extensions for a BERT model from the HuggingFace hub trained using Pytorch (in this case, https://huggingface.co/alan-yahya/NanoBERT-V2).
+This project implements a custom attention mechanism using C++ extensions for a Pytorch BERT model (https://huggingface.co/alan-yahya/NanoBERT-V2).
 
-For info on C++ extensions for Pytorch see https://pytorch.org/tutorials/advanced/cpp_extension.html
-Primarily custom model architecture implementations, not inference/deployment implementations (for that see llama.cpp or unsloth.ai).
+For info on C++ extensions for Pytorch see https://pytorch.org/tutorials/advanced/cpp_extension.html.
 
-Integrating RoPE for BERT model run_mlm from Pytorch scripts.
+This resource is focused on customising model training behaviour, not inference or deployment. For that, see llama.cpp et al.
+
+![Weighting for RoPE embeddings](./position_sensitivity.png)
+![Comparison of attention for RoPE and default position embeddings](./rope_analysis.png)
 
 ## Features
 
 - Optimized C++ attention implementation
-- Custom matrix multiplication optimizations
-- Integration with HuggingFace's BERT models
+- Integration with HuggingFace's Pytorch BERT models
 - Support for pre-tokenized datasets
 
 ## Project Structure
-
-### Core Implementation
-- `extension.cpp`
-  - Custom attention mechanism implementation
-  - Optimized matrix multiplication
-  - CUDA-compatible computations
-
-- `custom_bert_attention.py`
-  - Custom attention layer integration
-  - HuggingFace compatibility layer
-  - C++ extension bindings
-
-- `custom_bert.py`
-  - Modified BERT model implementations
-  - `CustomBertModel`: Base model
-  - `CustomBertForMLM`: MLM-specific model
 
 ### Training
 - `run_mlm-from_pretokenized.py`
@@ -39,17 +24,14 @@ Integrating RoPE for BERT model run_mlm from Pytorch scripts.
   - MLM training configuration
 
 ### Build System
-- `build.py`
+- `setup.py`
   - C++ extension compilation
   - MSVC/ninja build configuration
+  - Package metadata
 
 - `pyproject.toml`
   - Build dependencies
   - Package configuration
-
-- `setup.py`
-  - Extension module setup
-  - Package metadata
 
 ## Installation
 
@@ -68,7 +50,19 @@ python build.py
 pip install -e .
 ```
 
+4. If you modify the C++ code, rebuild the extension:
+```bash
+pip install --force-reinstall -e .
+```
+
 ## Usage
+
+Example usage:
+
+```
+python test_extension.py
+python test_rope_attention.py
+```
 
 ```python
 from custom_bert import CustomBertModel

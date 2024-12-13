@@ -3,6 +3,7 @@ import custom_extension
 import time
 from typing import Callable
 from torch.nn import functional as F
+import matplotlib.pyplot as plt
 
 def benchmark_fn(fn: Callable, *args, num_runs: int = 100, warmup: int = 10):
     """Helper function to benchmark a function"""
@@ -130,26 +131,17 @@ def test_attention():
     # Test parameters
     batch_size = 2
     seq_length = 32
-    embed_dim = 64
-    num_heads = 2
-    head_dim = embed_dim // num_heads
+    num_heads = 4
+    head_dim = 64
+    embed_dim = head_dim * num_heads
     
-    print(f"Parameters: batch={batch_size}, seq_len={seq_length}, "
-          f"embed_dim={embed_dim}, heads={num_heads}, head_dim={head_dim}")
-    
-    # Create input tensors
+    # Create test tensors with requires_grad=True
     query = torch.randn(batch_size, seq_length, embed_dim, requires_grad=True)
     key = torch.randn(batch_size, seq_length, embed_dim, requires_grad=True)
     value = torch.randn(batch_size, seq_length, embed_dim, requires_grad=True)
     
-    # Create attention mask (causal mask for testing)
-    attn_mask = torch.triu(torch.ones(seq_length, seq_length) * float('-inf'), diagonal=1)
-    
-    print("\nInput shapes:")
-    print(f"Query: {query.shape}")
-    print(f"Key: {key.shape}")
-    print(f"Value: {value.shape}")
-    print(f"Mask: {attn_mask.shape}")
+    # Create gradient tensor for backward pass
+    grad_output = torch.randn(batch_size, seq_length, embed_dim)
     
     try:
         print("\n--- Testing RoPE Attention ---")
@@ -158,112 +150,100 @@ def test_attention():
             key=key,
             value=value,
             num_heads=num_heads,
-            attn_mask=attn_mask,
+            attn_mask=torch.zeros(seq_length, seq_length),  # bidirectional attention
             dropout_p=0.0,
             need_weights=True,
-            average_attn_weights=True,
+            average_attn_weights=False,  # Keep separate head weights
             rope_base=10000.0,
-            training=False
+            training=True  # Set to True for training mode
         )
         
-        print("✓ RoPE forward pass successful")
+        print("✓ RoPE attention forward pass successful")
         print(f"Output shape: {rope_output.shape}")
         print(f"Attention weights shape: {rope_weights.shape}")
         
+        # Visualize RoPE attention patterns for each head
+        plt.figure(figsize=(15, 5))
+        for head in range(min(3, num_heads)):  # Show first 3 heads
+            plt.subplot(1, 3, head + 1)
+            plt.imshow(rope_weights[0, head].detach().numpy(), cmap='viridis')
+            plt.title(f"RoPE Head {head}")
+            plt.colorbar()
+        plt.tight_layout()
+        plt.savefig('rope_attention_heads.png')
+        plt.close()
+        
         # Test backward pass
-        grad_output = torch.randn_like(rope_output)
         rope_output.backward(grad_output)
-        print("✓ RoPE backward pass successful")
+        print("✓ RoPE attention backward pass successful")
         
         print("\n--- Testing Standard Attention ---")
-        # Reset gradients
-        query.grad = None
-        key.grad = None
-        value.grad = None
-        
-        # Forward pass with standard attention
         std_output, std_weights = custom_extension.full_attention(
-            query=query,
-            key=key,
-            value=value,
+            query=query.detach().requires_grad_(),  # Create new gradient history
+            key=key.detach().requires_grad_(),
+            value=value.detach().requires_grad_(),
             num_heads=num_heads,
-            attn_mask=attn_mask,
+            attn_mask=torch.zeros(seq_length, seq_length),
             dropout_p=0.0,
             need_weights=True,
-            average_attn_weights=True,
-            training=False
+            average_attn_weights=False,
+            training=True  # Set to True for training mode
         )
         
         print("✓ Standard attention forward pass successful")
         print(f"Output shape: {std_output.shape}")
         print(f"Attention weights shape: {std_weights.shape}")
         
+        # Visualize standard attention patterns for each head
+        plt.figure(figsize=(15, 5))
+        for head in range(min(3, num_heads)):  # Show first 3 heads
+            plt.subplot(1, 3, head + 1)
+            plt.imshow(std_weights[0, head].detach().numpy(), cmap='viridis')
+            plt.title(f"Standard Head {head}")
+            plt.colorbar()
+        plt.tight_layout()
+        plt.savefig('standard_attention_heads.png')
+        plt.close()
+        
         # Test backward pass
         std_output.backward(grad_output)
         print("✓ Standard attention backward pass successful")
         
-        print("\n--- Testing MLM Attention ---")
-        # Reset gradients
-        query.grad = None
-        key.grad = None
-        value.grad = None
-        
-        # Forward pass with MLM attention
-        mlm_output, mlm_weights = mlm_attention(
-            query=query,
-            key=key,
-            value=value,
-            num_heads=num_heads,
-            attn_mask=attn_mask,
-            dropout_p=0.0
-        )
-        
-        print("✓ MLM attention forward pass successful")
-        print(f"Output shape: {mlm_output.shape}")
-        print(f"Attention weights shape: {mlm_weights.shape}")
-        
-        # Test backward pass
-        mlm_output.backward(grad_output)
-        print("✓ MLM attention backward pass successful")
-        
-        # Compare outputs
+        # Compare outputs and attention patterns
         print("\n--- Comparing Implementations ---")
-        rope_std_diff = (rope_output - std_output).abs().max().item()
-        rope_mlm_diff = (rope_output - mlm_output).abs().max().item()
-        std_mlm_diff = (std_output - mlm_output).abs().max().item()
+        output_diff = (rope_output - std_output).abs().max().item()
+        print(f"Max output difference: {output_diff:.6f}")
         
-        print(f"Max differences:")
-        print(f"- RoPE vs Standard: {rope_std_diff:.6f}")
-        print(f"- RoPE vs MLM: {rope_mlm_diff:.6f}")
-        print(f"- Standard vs MLM: {std_mlm_diff:.6f}")
+        # Compare attention patterns per head
+        for head in range(num_heads):
+            head_diff = (rope_weights[0, head] - std_weights[0, head]).abs().max().item()
+            print(f"Head {head} max attention difference: {head_diff:.6f}")
         
         # Benchmark
         print("\n--- Benchmarking ---")
+        def benchmark_fn(fn):
+            start = time.perf_counter()
+            for _ in range(100):
+                fn()
+            return (time.perf_counter() - start) / 100
+        
         rope_time = benchmark_fn(
             lambda: custom_extension.rope_attention(
-                query, key, value, num_heads, attn_mask, 0.0, True, True, 10000.0, False
+                query, key, value, num_heads, torch.zeros(seq_length, seq_length),
+                0.0, True, False, 10000.0, False
             )[0]
         )
         
         std_time = benchmark_fn(
             lambda: custom_extension.full_attention(
-                query, key, value, num_heads, attn_mask, 0.0, True, True, False
-            )[0]
-        )
-        
-        mlm_time = benchmark_fn(
-            lambda: mlm_attention(
-                query, key, value, num_heads, attn_mask, 0.0
+                query, key, value, num_heads, torch.zeros(seq_length, seq_length),
+                0.0, True, False, False
             )[0]
         )
         
         print(f"RoPE attention: {rope_time*1000:.3f} ms")
         print(f"Standard attention: {std_time*1000:.3f} ms")
-        print(f"MLM attention: {mlm_time*1000:.3f} ms")
-        print(f"Speed ratios:")
-        print(f"- RoPE vs Standard: {std_time/rope_time:.2f}x")
-        print(f"- RoPE vs MLM: {mlm_time/rope_time:.2f}x")
-        print(f"- Standard vs MLM: {mlm_time/std_time:.2f}x")
+        print(f"Speed ratio: {std_time/rope_time:.2f}x")
         
     except Exception as e:
         print(f"\nError in attention test: {str(e)}")

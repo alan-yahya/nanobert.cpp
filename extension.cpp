@@ -286,8 +286,12 @@ public:
         attn_output = attn_output.transpose(1, 2).contiguous();
         attn_output = attn_output.reshape({batch_size, tgt_len, embed_dim});
         
-        if (need_weights && average_attn_weights) {
-            attn_weights = attn_weights.mean(1);
+        // Handle attention weights for return
+        if (need_weights) {
+            if (average_attn_weights) {
+                attn_weights = attn_weights.mean(1);  // [batch, seq, seq]
+            }
+            // else keep [batch, num_heads, seq, seq]
         }
 
         return {attn_output, attn_weights};

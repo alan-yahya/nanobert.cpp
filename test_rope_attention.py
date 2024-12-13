@@ -89,11 +89,8 @@ def test_rotary_embeddings():
     key_layer = torch.randn(batch_size, seq_length, head_dim * num_heads) * 0.1
     value_layer = torch.randn(batch_size, seq_length, head_dim * num_heads) * 0.1
     
-    # Create proper causal attention mask with better numerical stability
-    attn_mask = torch.triu(
-        torch.zeros(seq_length, seq_length) - 65504,  # Use float16 max negative instead of -1e4
-        diagonal=1
-    ).to(device=query_layer.device, dtype=query_layer.dtype)
+    # Create bidirectional attention mask (remove causal masking)
+    attn_mask = torch.zeros(seq_length, seq_length).to(device=query_layer.device, dtype=query_layer.dtype)
     
     # Scale inputs for better numerical stability
     query_scale = math.sqrt(1.0 / (head_dim * num_heads))
@@ -197,8 +194,12 @@ def test_rotary_embeddings():
     print(f"Average difference after shifting: {weights_shift_diff:.6f}")
     
     # 2. Analyze relative position sensitivity
+    print("\nAnalyzing position sensitivity...")
+    
+    # Store weights for all heads
+    all_head_weights = []
     for head in range(num_heads):
-        head_weights = weights[0, head]
+        head_weights = weights[0, head]  # Get weights for current head
         
         # Calculate average attention weight for each relative position
         rel_pos_weights = {}
@@ -207,25 +208,51 @@ def test_rotary_embeddings():
             if len(diag_vals) > 0:
                 avg_weight = diag_vals.mean().item()
                 rel_pos_weights[pos] = avg_weight
-        
-        # Print strongest attention positions
-        sorted_pos = sorted(rel_pos_weights.items(), key=lambda x: abs(x[1]), reverse=True)
+        all_head_weights.append(rel_pos_weights)
     
     # Plot relative position sensitivity
-    plt.figure(figsize=(10, 5))
-    positions = list(rel_pos_weights.keys())
-    weights_list = [rel_pos_weights[p] for p in positions]
+    plt.figure(figsize=(12, 6))
     
-    plt.plot(positions, weights_list, 'b-', label='Average attention')
-    plt.axvline(x=0, color='r', linestyle='--', alpha=0.5)
+    # Plot for each head
+    for head in range(num_heads):
+        positions = list(all_head_weights[head].keys())
+        weights_list = [all_head_weights[head][p] for p in positions]
+        plt.plot(positions, weights_list, 
+                label=f'Head {head}', 
+                alpha=0.7,
+                linestyle='-',
+                marker='.')
+    
+    # Add average across heads
+    avg_weights = {}
+    for pos in positions:
+        avg_weights[pos] = np.mean([hw[pos] for hw in all_head_weights])
+    avg_weights_list = [avg_weights[p] for p in positions]
+    plt.plot(positions, avg_weights_list, 
+            'k--', 
+            label='Average',
+            linewidth=2)
+    
+    # Formatting
+    plt.axvline(x=0, color='r', linestyle=':', alpha=0.5)
     plt.xlabel('Relative Position')
     plt.ylabel('Average Attention Weight')
-    plt.title('Attention Weight vs Relative Position')
+    plt.title('Attention Weight vs Relative Position by Head')
     plt.legend()
-    plt.grid(True)
+    plt.grid(True, alpha=0.3)
+    
+    # Add text box with statistics
+    stats_text = f"Statistics:\n"
+    stats_text += f"Max weight: {max(avg_weights_list):.4f}\n"
+    stats_text += f"Min weight: {min(avg_weights_list):.4f}\n"
+    stats_text += f"Mean weight: {np.mean(avg_weights_list):.4f}"
+    plt.text(0.02, 0.98, stats_text,
+             transform=plt.gca().transAxes,
+             verticalalignment='top',
+             bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
     
     plt.tight_layout()
-    plt.savefig('position_sensitivity.png')
+    plt.savefig('position_sensitivity.png', dpi=300, bbox_inches='tight')
     plt.close()
 
 if __name__ == "__main__":

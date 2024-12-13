@@ -173,14 +173,18 @@ std::vector<torch::Tensor> create_rope_rotary_matrices(
     int64_t seq_length,
     int64_t dim,
     float base = 10000.0,
-    torch::TensorOptions options = torch::TensorOptions()
+    c10::optional<torch::TensorOptions> options = c10::nullopt
 ) {
-    auto inv_freq = 1.0 / torch::pow(base, 
-        torch::arange(0, dim, 2, options).div(dim));
+    auto opts = options.has_value() ? *options : torch::TensorOptions().dtype(torch::kFloat32);
     
-    auto t = torch::arange(seq_length, options);
+    // Create position encodings
+    auto inv_freq = 1.0 / torch::pow(base, 
+        torch::arange(0, dim, 2, opts).div(float(dim)));
+    
+    auto t = torch::arange(seq_length, opts);
     auto freqs = torch::outer(t, inv_freq);
     
+    // Compute sin and cos
     auto cos = torch::cos(freqs);  // [seq_length, dim/2]
     auto sin = torch::sin(freqs);  // [seq_length, dim/2]
     
@@ -380,7 +384,21 @@ std::vector<torch::Tensor> rope_attention(
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("custom_matmul", &custom_matmul, "Custom Matrix Multiplication");
     m.def("custom_attention_scores", &custom_attention_scores, "Custom Attention Score Computation");
-    m.def("create_rope_rotary_matrices", &create_rope_rotary_matrices, "Create RoPE Rotary Matrices");
+    
+    // Update the binding for create_rope_rotary_matrices
+    m.def("create_rope_rotary_matrices", 
+          static_cast<std::vector<torch::Tensor>(*)(int64_t, int64_t, float, c10::optional<torch::TensorOptions>)>(&create_rope_rotary_matrices),
+          "Create RoPE Rotary Matrices",
+          py::arg("seq_length"),
+          py::arg("dim"),
+          py::arg("base") = 10000.0,
+          py::arg("options") = c10::nullopt);
+    
+    m.def("apply_rotary_embeddings", &apply_rotary_embeddings, "Apply Rotary Position Embeddings",
+          py::arg("x"),
+          py::arg("cos"),
+          py::arg("sin"));
+    
     m.def("full_attention", &full_attention, "Full Multi-Head Attention Implementation",
           py::arg("query"),
           py::arg("key"),
@@ -391,6 +409,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           py::arg("need_weights") = true,
           py::arg("average_attn_weights") = true,
           py::arg("training") = false);
+    
     m.def("rope_attention", &rope_attention, "RoPE Multi-Head Attention",
           py::arg("query"),
           py::arg("key"),

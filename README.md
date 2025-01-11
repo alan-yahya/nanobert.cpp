@@ -2,9 +2,7 @@
 
 This project implements a custom attention mechanism using C++ extensions for a Pytorch BERT model (https://huggingface.co/alan-yahya/NanoBERT-V2).
 
-For info on C++ extensions for Pytorch see https://pytorch.org/tutorials/advanced/cpp_extension.html.
-
-This resource is focused on customising model training behaviour, not inference or deployment. For that, see llama.cpp et al.
+For more info on C++ extensions for Pytorch see https://pytorch.org/tutorials/advanced/cpp_extension.html.
 
 ![Weighting for RoPE embeddings](./position_sensitivity.png)
 ![Comparison of attention for RoPE and default position embeddings](./rope_analysis.png)

@@ -1,6 +1,6 @@
 # C++ Extensions for NanoBERT
 
-This project implements customized attention mechanism using C++ extensions Pytorch, using a specific BERT model (https://huggingface.co/alan-yahya/NanoBERT-V2).
+This project implements customized attention mechanism using C++ extensions Pytorch, loading a BERT model from HuggingFace (https://huggingface.co/alan-yahya/NanoBERT-V2).
 
 For more info on C++ extensions for Pytorch see https://pytorch.org/tutorials/advanced/cpp_extension.html.
 
